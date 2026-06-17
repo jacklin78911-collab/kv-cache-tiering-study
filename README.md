@@ -7,7 +7,7 @@ offloading path.
 
 ## Technical Report
 
-**[When LRU Delivers Nothing: An Anatomy of KV-Cache Tiering Policies for Multi-Turn LLM Serving](https://github.com/jacklin78911-collab/kv-cache-tiering-study/blob/main/kv-tiering-technical-report.pdf)** (PDF)
+**[When LRU Delivers Nothing: An Anatomy of KV-Cache Tiering Policies for Multi-Turn LLM Serving](https://github.com/jacklin78911-collab/kv-cache-tiering-study/raw/main/kv-tiering-technical-report.pdf) (PDF)** (PDF)
 
 ### Summary
 
