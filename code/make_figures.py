@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""报告图 1/2/3 生成器。matplotlib 单工具链, 输出 PDF+PNG。"""
+"""Generator for report Figures 1-3. Single matplotlib toolchain, outputs PDF+PNG."""
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -8,17 +8,17 @@ import numpy as np
 plt.rcParams.update({"font.size": 9, "axes.spines.top": False,
                      "axes.spines.right": False})
 
-# ---------- Figure 2: t2 TTFT 档位散点 ----------
-sym = {  # 对称循环负载 (N 系列, 3 runs each)
+# ---------- Figure 2: 2nd-turn TTFT band scatter ----------
+sym = {  # symmetric cyclic workload (N series, 3 runs each)
  "LRU":  [[.541,.548,.568,.871,.875,.932],[.552,.554,.567,.864,.881,.934],[.559,.560,.562,.792,.879,.914]],
  "ARC":  [[.549,.551,.552,.892,.902,.918],[.548,.559,.561,.837,.869,.890],[.548,.554,.564,.838,.877,.944]],
  "chain-v1":[[.076,.115,.568,.602,.859,.881],[.070,.143,.530,.556,.881,.908],[.081,.105,.428,.566,.891,.943]],
 }
-adv = {  # 对抗回访集 (VA 系列, 1 run each)
+adv = {  # adversarial revisit set (VA series, 1 run each)
  "LRU":  [[.548,.562,.563,.814,.881,.913]],
  "chain-v1":[[.514,.516,.520,.821,.837,.873]],
 }
-t1_med_sym, t1_med_adv = 0.84, 0.77  # 重算基线带
+t1_med_sym, t1_med_adv = 0.84, 0.77  # recompute baseline band
 
 fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.6), sharey=True)
 for ax, data, t1, title in [(axes[0], sym, t1_med_sym, "Symmetric cyclic revisit"),
@@ -39,7 +39,7 @@ axes[0].set_ylabel("2nd-turn TTFT (s)")
 fig.tight_layout()
 fig.savefig("fig2_policy_tiers.pdf"); fig.savefig("fig2_policy_tiers.png", dpi=200)
 
-# ---------- Figure 1: 架构示意 ----------
+# ---------- Figure 1: architecture schematic ----------
 fig, ax = plt.subplots(figsize=(7.0, 2.4)); ax.axis("off")
 def box(x, y, w, h, label, fc="#eef2f7"):
     ax.add_patch(plt.Rectangle((x, y), w, h, fc=fc, ec="0.3", lw=0.8))
@@ -64,7 +64,7 @@ ax.text(0.91, 0.18, "opaque keys only:\nno request identity", fontsize=7,
 fig.savefig("fig1_architecture.pdf", bbox_inches="tight")
 fig.savefig("fig1_architecture.png", dpi=200, bbox_inches="tight")
 
-# ---------- Figure 3: 均贫桩盆地三力 ----------
+# ---------- Figure 3: stub-equilibrium basin, three forces ----------
 fig, ax = plt.subplots(figsize=(4.6, 3.0)); ax.axis("off")
 ax.add_patch(plt.Circle((0.5, 0.42), 0.16, fc="#f9e7e7", ec="#b03a2e", lw=1.2))
 ax.text(0.5, 0.42, "stub\nequilibrium", ha="center", va="center", fontsize=9,
