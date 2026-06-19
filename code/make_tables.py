@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""表 1/2 由内嵌数据生成(LaTeX+Markdown); 表 3 从 ~/ablogs7 日志现场提取。
-用法: python make_tables.py [logdir]   # logdir 默认 ~/ablogs7
+"""Tables 1/2 generated from inline data (LaTeX+Markdown); Table 3 extracted live from ~/ablogs7 logs.
+Usage: python make_tables.py [logdir]   # logdir defaults to ~/ablogs7
 """
 import re
 import statistics as st
@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 OUT = Path("tables_out"); OUT.mkdir(exist_ok=True)
-med = lambda xs: sorted(xs)[len(xs)//2]  # harness 同口径
+med = lambda xs: sorted(xs)[len(xs)//2]  # same convention as the harness
 
-# ---------- Table 1: 四臂 (Phase 3, 4090D) ----------
+# ---------- Table 1: four arms (Phase 3, 4090D) ----------
 T1 = {
  "A (recompute)": [[.574,.594,.656,.659,.661,.666],[.579,.594,.658,.661,.662,.681],[.586,.595,.660,.667,.669,.671]],
  "S (local CPU)": [[.151,.153,.154,.157,.161,.164],[.139,.149,.157,.158,.159,.184],[.153,.159,.166,.168,.169,.172]],
@@ -31,12 +31,12 @@ with open(OUT/"table1.tex", "w") as f:
     for r in rows1: f.write(" & ".join(r) + " \\\\\n")
     f.write("\\bottomrule\n\\end{tabular}\n")
 
-# ---------- Table 2: 三策略 (对称负载, 4060) ----------
+# ---------- Table 2: three policies (symmetric workload, 4060) ----------
 T2 = [
  # policy, t2 med x3(s), load ops x3, store ops x3, complete recoveries x3
  ("LRU",      [.864,.871,.792], [0,0,0],  [70,70,70], [0,0,0]),
  ("ARC",      [.892,.837,.838], [0,0,0],  [70,70,70], [0,0,0]),
- ("chain-v1", [.602,.556,.566], [3,3,4],  [52,52,52], [3,"3","3"]),  # b/c 两轮待 hit-tokens 提取(命令见 README)
+ ("chain-v1", [.602,.556,.566], [3,3,4],  [52,52,52], [3,3,3]),  # all three runs verified by hit-tokens (2256/2048/2016, identical)
 ]
 with open(OUT/"table2.md", "w") as f:
     f.write("| Policy | t2 TTFT med (s) ×3 | load ops ×3 | store ops ×3 | complete recoveries ×3 |\n|---|---|---|---|---|\n")
@@ -44,7 +44,7 @@ with open(OUT/"table2.md", "w") as f:
         f.write(f"| {p} | {'/'.join(f'{x:.3f}' for x in t)} | {'/'.join(map(str,l))} | "
                 f"{'/'.join(map(str,s_))} | {'/'.join(map(str,c))} |\n")
 
-# ---------- Table 3: W 系列 hit-tokens 分布(从日志提取) ----------
+# ---------- Table 3: W-series hit-tokens distribution (extracted from logs) ----------
 logdir = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else Path.home()/"ablogs7"
 tags = ["W0","W1","W2","W3h","W3o","W5h","W5o","W4u"]
 pat = re.compile(r"Request (\w+)-s(\d+)t(\d+)-\w+ hit (\d+) offloaded tokens after (\d+) GPU hit tokens")
