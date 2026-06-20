@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""tbt_run8: 支持真实 ShareGPT trace 重放(--trace-file)。
-空 trace-file 时行为完全同 v7(合成)。trace 模式下:
-  - 会话=trace 里的真实多轮对话(human/gpt 交替), prefix=真实 turn1
-  - 每个 human 轮按真实 token 数重放; 一次性 vs 回访由 --revisit-set 控制
-    (一次性会话只发 turn1; 回访会话发其全部真实轮)
-  - 前缀长度异质, 不再 homogenize
+"""tbt_run8: supports real ShareGPT trace replay (--trace-file).
+With an empty trace-file, behavior is identical to v7 (synthetic). In trace mode:
+  - a session = a real multi-turn conversation from the trace (human/gpt alternating),
+    prefix = the real turn1
+  - each human turn is replayed at its real token count; one-shot vs revisit is
+    controlled by --revisit-set (one-shot sessions send only turn1; revisited
+    sessions send all of their real turns)
+  - prefix lengths are heterogeneous; no longer homogenized
 v7 docstring:
-  K 轮会话 + 可选 oracle hint。其余同 v6:--revisit-frac 控制有第二轮的会话比例
-(回访集合由种子随机抽取, 不固定在前几个)。其余同 v5:每 session 两轮:
-  turn1 = 长 prompt -> 生成 turn_tokens
-  (空闲 idle_s, 期间其他 session 的前缀挤占池子 -> 本 session 前缀被驱逐)
-  turn2 = 同一 prompt + 固定追问 -> 命中/恢复/重算 9k 前缀
-裁决指标: turn2 TTFT = 前缀恢复成本 (A=重算秒级 / S=本地load / R,P=远端load)。
-注: turn2 不拼接 turn1 生成文本(tokenizer 往返会破坏前缀逐 token 一致性),
-只复用 prompt 前缀, 保真度损失=turn_tokens 个 token, 记录声明。
-用法:
+  K-turn sessions + optional oracle hint. Otherwise same as v6: --revisit-frac
+  controls the fraction of sessions that have a second turn (the revisit set is
+  randomly sampled by seed, not fixed to the first few). Otherwise same as v5:
+  two turns per session:
+    turn1 = long prompt -> generates turn_tokens
+    (idle for idle_s, during which other sessions' prefixes crowd the pool ->
+     this session's prefix is evicted)
+    turn2 = same prompt + fixed follow-up -> hit / recover / recompute the prefix
+  Decision metric: turn2 TTFT = prefix recovery cost (A=recompute, seconds /
+  S=local load / R,P=remote load).
+  Note: turn2 does not concatenate turn1's generated text (a tokenizer round-trip
+  would break per-token prefix consistency); it reuses only the prompt prefix.
+  Fidelity loss = turn_tokens tokens, declared in the record.
+Usage:
   python tbt_run4.py --tag M0 --outdir ~/ablogs4 --n-sessions 6 \
       --prompt-tokens 9216 --turn-tokens 128 --idle-s 30 --stagger-s 10 \
       --num-blocks 2048 --max-model-len 12288
@@ -37,14 +44,14 @@ def check_environment() -> None:
     try:
         with open("/proc/version") as f:
             if "linux" not in f.read().lower():
-                sys.exit("[AB-FATAL] 非 Linux 环境，退出。")
+                sys.exit("[AB-FATAL] not a Linux environment, exiting.")
     except FileNotFoundError:
-        sys.exit("[AB-FATAL] 无 /proc/version，退出。")
+        sys.exit("[AB-FATAL] no /proc/version, exiting.")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.3)
     try:
         if s.connect_ex(("127.0.0.1", 8000)) == 0:
-            sys.exit("[AB-FATAL] localhost:8000 被占，先 kill。")
+            sys.exit("[AB-FATAL] localhost:8000 is in use, kill it first.")
     finally:
         s.close()
 
@@ -57,11 +64,14 @@ def make_long_prompt(i: int, n_tokens: int, seed: int = 42) -> str:
     words = [f"session{i}"] + [vocab[rng.randrange(len(vocab))] for _ in range(n_tokens - 1)]
     return "Technical notes:\n" + " ".join(words)
 
+
 def load_trace_sessions(path: str, n_sessions: int, seed: int = 7,
                         min_prefix: int = 256, max_prefix: int = 4096):
-    """从 ShareGPT json 读会话, 按 turn1 前缀长度分层抽 n_sessions 个,
-    保留真实长度异质性。返回 list[dict]: {id, turns:[human_text,...]}。
-    只取 human 轮文本(gpt 轮作为前缀累积的一部分隐式包含在下一个 human 的拼接里)。
+    """Read sessions from the ShareGPT json, stratify-sample n_sessions by turn1
+    prefix length, preserving real length heterogeneity. Returns list[dict]:
+    {id, turns:[human_text, ...]}.
+    Takes only human-turn text (gpt turns are implicitly included in the next
+    human turn's concatenated prefix).
     """
     import json as _json
     from transformers import AutoTokenizer
@@ -80,19 +90,18 @@ def load_trace_sessions(path: str, n_sessions: int, seed: int = 7,
         if not (min_prefix <= p0 <= max_prefix):
             continue
         cand.append({"id": conv.get("id", "?"), "p0": p0,
-                     "turns": [t["value"] for t in turns]})  # 全轮文本(human+gpt 交替)
+                     "turns": [t["value"] for t in turns]})  # all-turn text (human+gpt alternating)
     cand.sort(key=lambda c: c["p0"])
     if len(cand) < n_sessions:
-        raise SystemExit(f"[FATAL] 候选仅 {len(cand)} < n_sessions {n_sessions}")
-    # 分层抽样: 等距取 n_sessions 个, 覆盖前缀长度全谱
+        raise SystemExit(f"[FATAL] only {len(cand)} candidates < n_sessions {n_sessions}")
+    # Stratified sampling: take n_sessions at equal intervals, covering the full prefix-length spectrum
     step = len(cand) / n_sessions
     picked = [cand[int(k * step)] for k in range(n_sessions)]
     rng = random.Random(seed)
-    rng.shuffle(picked)  # 打乱到达顺序, 与 revisit-set 解耦
+    rng.shuffle(picked)  # shuffle arrival order, decoupled from revisit-set
     print(f"[AB-TRACE] {len(cand)} candidates; picked {n_sessions}; "
           f"prefix tokens = {[p['p0'] for p in picked]}", flush=True)
     return picked
-
 
 
 async def timed_request(engine, prompt: str, sp, rid: str) -> dict:
@@ -123,7 +132,7 @@ async def amain(args) -> None:
             ea_kwargs["kv_transfer_config"] = KVTransferConfig(
                 kv_connector_extra_config={"eviction_policy": args.eviction_policy})
     if args.offload_gib == 0:
-        assert "kv_offloading_size" not in ea_kwargs, "baseline 被污染"
+        assert "kv_offloading_size" not in ea_kwargs, "baseline contaminated"
     print(f"[AB-KWARGS] tag={args.tag} {ea_kwargs}", flush=True)
 
     engine = AsyncLLM.from_engine_args(AsyncEngineArgs(**ea_kwargs))
@@ -154,23 +163,23 @@ async def amain(args) -> None:
         await asyncio.sleep(i * args.stagger_s)
         spi = sp_for(i)
         if trace is not None:
-            # 真实 trace: 用对话的 human 轮; prefix 随轮累积真实上下文
+            # Real trace: use the conversation's human turns; prefix accumulates real context per turn
             conv = trace[i]
-            human_turns = conv["turns"][0::2]  # human 在偶数位
+            human_turns = conv["turns"][0::2]  # human turns are at even positions
             n_turns = len(human_turns) if i in revisit_set else 1
             ctx = ""
             for t in range(1, n_turns + 1):
                 if t > 1:
                     await asyncio.sleep(args.idle_s)
-                # 累积: 之前所有 human+gpt 轮 + 当前 human 轮
-                ctx = "".join(conv["turns"][:2 * (t - 1)])  # 到上一轮 gpt 为止
+                # Accumulate: all prior human+gpt turns + current human turn
+                ctx = "".join(conv["turns"][:2 * (t - 1)])  # up to the previous gpt turn
                 prompt = ctx + human_turns[t - 1]
                 r = await timed_request(engine, prompt, spi, f"{args.tag}-s{i}t{t}")
                 r["turn"] = t
                 results.append(r)
                 print(f"[TURN] {r['req']} ttft={r['ttft_s']:.3f}s", flush=True)
             return
-        # 合成路径(原 v7)
+        # Synthetic path (original v7)
         prompt = make_long_prompt(i, args.prompt_tokens)
         n_turns = args.n_turns if i in revisit_set else 1
         for t in range(1, n_turns + 1):
@@ -223,14 +232,14 @@ def main() -> None:
     p.add_argument("--max-model-len", type=int, default=12288)
     p.add_argument("--n-turns", type=int, default=3)
     p.add_argument("--trace-file", default="",
-                   help="ShareGPT json 路径; 空=合成负载(同 v7)")
+                   help="path to ShareGPT json; empty = synthetic workload (same as v7)")
     p.add_argument("--hints", default="none", choices=["none", "oracle"])
     p.add_argument("--revisit-set", default="",
-                   help="显式回访会话id逗号表, 覆盖 revisit-frac")
+                   help="explicit comma-separated list of revisited session ids, overrides revisit-frac")
     p.add_argument("--revisit-frac", type=float, default=1.0,
-                   help="有第二轮的会话比例(0~1], 种子固定抽取")
+                   help="fraction of sessions with a second turn (0~1], sampled by fixed seed")
     p.add_argument("--eviction-policy", default="",
-                   help="CPU 层驱逐策略: lru|arc|(自定义注册名); 空=引擎默认(lru)")
+                   help="CPU-tier eviction policy: lru|arc|(custom registered name); empty = engine default (lru)")
     args = p.parse_args()
     check_environment()
     asyncio.run(amain(args))
