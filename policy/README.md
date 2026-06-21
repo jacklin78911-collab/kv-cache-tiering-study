@@ -31,3 +31,8 @@ and `setup_chain_v2.py undo` restore the pristine manager.
 
 The point of these prototypes is the *mechanisms of failure they expose*, not a
 production-ready policy. See the report for the full analysis.
+
+Note: v2's docstring describes the *intent* (revisit-aware guarding); in practice
+this over-protects and produces the starvation failure analyzed in report §5.2
+(1364 rejected stores, pool frozen). v3 was written to fix exactly this — see its
+docstring.
