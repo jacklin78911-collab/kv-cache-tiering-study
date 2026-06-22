@@ -29,10 +29,16 @@ and `setup_chain_v2.py undo` restore the pristine manager.
 | v2 | reuse-credit + sticky-hint guarding | starvation under over-protection |
 | v3 | block-budget guard + ghost-chain credit | mitigates two failure modes, still falls into the stub equilibrium |
 
+**Note on v2 naming.** `setup_chain_v2.py`'s docstring describes the *intent*
+(revisit-aware guarding); in practice this over-protects and produces the
+"starvation by over-protection" failure analyzed in report §5.2 — with the live
+chain count too low and the guard too strong, the evictable set goes empty and
+store batches are mass-rejected (1,364 rejected store batches, 0 successful
+evictions, only 7 stores completed vs 127 for LRU, ending in 0 load operations).
+v3 was written to fix exactly this, replacing chain-count guarding with
+block-budget guarding (see its docstring). v2 is not a separate version — it *is*
+the failure version critiqued in the report; the name reflects design intent, the
+report reflects experimental outcome.
+
 The point of these prototypes is the *mechanisms of failure they expose*, not a
 production-ready policy. See the report for the full analysis.
-
-Note: v2's docstring describes the *intent* (revisit-aware guarding); in practice
-this over-protects and produces the starvation failure analyzed in report §5.2
-(1364 rejected stores, pool frozen). v3 was written to fix exactly this — see its
-docstring.
